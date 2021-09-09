@@ -26,14 +26,13 @@ Just create it. Almost the same as WriteInt16 :)
 
 ```
         public void WriteShort(short[] buffer, int byteCount) {
-            int sampleCount = byteCount;
-            if (this.buffer == null || this.buffer.Length < sampleCount)
-                this.buffer = new float[sampleCount];
+            if (this.buffer == null || this.buffer.Length < byteCount)
+                this.buffer = new float[byteCount];
 
             fixed (short* pInBuffer = buffer)
             fixed (float* pOutBuffer = this.buffer)
-                sp.ippsConvert_16s32f_Sfs(pInBuffer, pOutBuffer, sampleCount, 15);
+                sp.ippsConvert_16s32f_Sfs(pInBuffer, pOutBuffer, byteCount, 15);
 
-            Write(this.buffer, 0, sampleCount);
+            Write(this.buffer, 0, byteCount);
         }
 ```
