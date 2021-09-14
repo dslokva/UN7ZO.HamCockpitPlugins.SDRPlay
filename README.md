@@ -16,23 +16,3 @@ Tuner AGC is hardcoded and set to "always on".
 
 
 ![image](https://user-images.githubusercontent.com/13137490/132552550-23b1aab7-681a-4773-8e92-f89b78decf1e.png)
-
-
-
-***preileminary information!****
-
-If you use old version of DSPFun dll code, you are probably missing writeShort method in RingBuffer.cs
-Just create it. Almost the same as WriteInt16 :)
-
-```
-        public void WriteShort(short[] buffer, int byteCount) {
-            if (this.buffer == null || this.buffer.Length < byteCount)
-                this.buffer = new float[byteCount];
-
-            fixed (short* pInBuffer = buffer)
-            fixed (float* pOutBuffer = this.buffer)
-                sp.ippsConvert_16s32f_Sfs(pInBuffer, pOutBuffer, byteCount, 15);
-
-            Write(this.buffer, 0, byteCount);
-        }
-```
