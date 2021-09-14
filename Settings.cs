@@ -37,6 +37,9 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
         AGC_Disable = sdrplay_api_AgcControlT.sdrplay_api_AGC_DISABLE
     }
     enum RSP_ANT : int {
+        [Description("ANT_Undefined")]
+        ANT_Undefined = 0,
+
         [Description("Ant_A")]
         ANT_A = sdrplay_api_Rsp2_AntennaSelectT.sdrplay_api_Rsp2_ANTENNA_A,
 
@@ -63,6 +66,7 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
         private RSP_SampleRate device_SampleRate = RSP_SampleRate.SR_Full_8;
         private RSP_IF_Mode device_IFMode = RSP_IF_Mode.Low_IF;
         private int deviceLNALevel;
+        private sdrplay_api_If_kHzT device_IF_Value;
 
         [DisplayName("0. Available devices")]
         [Description("Please select a device. Maximum one of 6 attached devices can be used.")]
@@ -71,6 +75,7 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
 
         [DisplayName("1. Antenna port")]
         [Description("Please select antenna port for RSP2.")]
+        [DefaultValue(RSP_ANT.ANT_A)]
         [TypeConverter(typeof(EnumDescriptionConverter))]
         public RSP_ANT DeviceAntenna { get; set; }
 
@@ -123,23 +128,44 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
                     DeviceIF_BW = RSP_IFBW.IF_BW_1_536;
                 }
 
-                switch (value) {
-                    case RSP_SampleRate.SR_Full_8:
-                        Device_IF_Value = sdrplay_api_If_kHzT.sdrplay_api_IF_2_048;
-                        return;
-                    case RSP_SampleRate.SR_Full_6:
-                        Device_IF_Value = sdrplay_api_If_kHzT.sdrplay_api_IF_1_620;
-                        return;
-                    case RSP_SampleRate.SR_Full_2:
-                        Device_IF_Value = sdrplay_api_If_kHzT.sdrplay_api_IF_0_450;
-                        return;
-                }
-
-                if (DeviceIF_Mode == RSP_IF_Mode.Zero_IF)
-                    Device_IF_Value = sdrplay_api_If_kHzT.sdrplay_api_IF_Zero;
-
+                recalculateIFValue(value);
             }
         }
+
+        private void recalculateIFValue(RSP_SampleRate value) {
+            switch (value) {
+                case RSP_SampleRate.SR_Full_8:
+                    Device_IF_Value = sdrplay_api_If_kHzT.sdrplay_api_IF_2_048;
+                    return;
+                case RSP_SampleRate.SR_Full_6:
+                    Device_IF_Value = sdrplay_api_If_kHzT.sdrplay_api_IF_1_620;
+                    return;
+                case RSP_SampleRate.SR_Full_2:
+                    Device_IF_Value = sdrplay_api_If_kHzT.sdrplay_api_IF_0_450;
+                    return;
+            }
+
+            if (DeviceIF_Mode == RSP_IF_Mode.Zero_IF)
+                Device_IF_Value = sdrplay_api_If_kHzT.sdrplay_api_IF_Zero;
+        }
+
+        /*    
+         *  Re: Gain(reduction) settings via the API
+            Post by sdrplay » Fri Oct 20, 2017 11:09 am
+
+            Hello Susan,
+            I'm not sure what you are stuck on.
+
+            There are 2 gain values reported back in the gain callback...gRdB is the IF gain and lnagRdB is the RF gain.The AGC only affects the IF gain.
+            The RF gain is a manual control and you will need to look at the tables in the API to see what the valid range of values is for the frequency you are interested in, as it will vary.
+
+            The first parameter in the AgcControl function is an enum that either disables the AGC or sets it into 1 of 3 "on" states.
+            Whether you use the getCurrentGain function to obtain a gain value or not, remember all of the control functions in the API work in gain reduction. 
+            i.e.lnagRdB = 0 means MAX gain level (i.e.no gain reduction), gRdB = 20 means 20dB of gain reduction.
+
+            Best regards,
+            SDRplay Support
+        */
 
         [DisplayName("5. LNA Gain reduce Level")]
         [Description("Please select LNA reduce level from 0 to 8, where 0 - maximum gain, 8 - maximum reduce.")]
@@ -179,7 +205,10 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
         public string SelectedDeviceModel { get; set; }
 
         [Browsable(false)]
-        public sdrplay_api_If_kHzT Device_IF_Value { get; set; }
+        public sdrplay_api_If_kHzT Device_IF_Value { get {
+                recalculateIFValue(DeviceSampleRate); 
+                return device_IF_Value; 
+            } set => device_IF_Value = value; }
 
         [Browsable(false)]
         public long[] Frequencies { get; set; } = new long[] { 14021000, 105000000 };

@@ -15,7 +15,7 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
         private int bufAccumCount = 0;
         private int BUF_ACCUM_LIMIT = 120;
 
-        /*          Conditions for LIF down-conversion to be enabled for all RSPs in single tuner mode:
+/*         Conditions for LIF down-conversion to be enabled for all RSPs in single tuner mode:
 *          (fsHz == 8000000) && (bwType == sdrplay_api_BW_1_536) && (ifType == sdrplay_api_IF_2_048) - работает ОК 504 сэмпла,   Final SR = 2000000        
 *          (fsHz == 6000000) && (bwType <= sdrplay_api_BW_1_536) && (ifType == sdrplay_api_IF_1_620) - работает ОК 504 сэмпла,   Final SR = 2000000
 *          (fsHz == 2000000) && (bwType <= sdrplay_api_BW_0_200) && (ifType == sdrplay_api_IF_0_450) - работает ОК 1008 семплов, Final SR = 500000
@@ -25,12 +25,12 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
 
         private Settings _settings = new Settings();
         private readonly RingBuffer buffer;
-        public static short[] Ibuf;
-        public static short[] Qbuf;
+        public static float[] Ibuf;
+        public static float[] Qbuf;
 
         private SDRPlayDevice _device = null;
         private sdrplay_api_DeviceParamsT _deviceParams;
-        private bool _IsStopping = false;
+        //private bool _IsStopping = false;
 
         //visual panels
         private readonly SDRPlayStatusInfoPanel sdrPlayStatusInfoPanel = new SDRPlayStatusInfoPanel();
@@ -84,7 +84,7 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
         }
 
         internal void setDeviceAntenna(int value) {
-            _device.selectAntenna(value);
+            _device.SelectAntenna(value);
             _settings.DeviceAntenna = (RSP_ANT)value;
         }
 
@@ -136,7 +136,7 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
         public void Initialize() {
             Debug.WriteLine("ISignalSource - Initialize");
 
-            FINAL_SAMPLING_RATE = correctSoftwareSampleRate();
+            FINAL_SAMPLING_RATE = CorrectSoftwareSampleRate();
             BUF_ACCUM_LIMIT = correctBufAccumLimit();
             buffer.Resize(FINAL_SAMPLING_RATE);
 
@@ -146,8 +146,8 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
             //60480 - 60                30240 - 60
             //120960 - 120              60480 - 120
 
-            Ibuf = new short[60480];
-            Qbuf = new short[60480];
+            Ibuf = new float[60480];
+            Qbuf = new float[60480];
         }
 
         private int correctBufAccumLimit() {
@@ -157,7 +157,7 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
                 return 120;
         }
 
-        private int correctSoftwareSampleRate() {
+        private int CorrectSoftwareSampleRate() {
             int sampRate = 2000000;
 
             if (_settings.DeviceSampleRate == RSP_SampleRate.SR_Full_2)
@@ -187,7 +187,7 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
             if (value == Active) return;
 
             if (value) {
-                _IsStopping = false;
+                //_IsStopping = false;
                 _device.InitializeDevice();
 
                 if (_device.getDeviceCount() == 0) {
@@ -224,7 +224,7 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
                     Application.DoEvents();
                 }
             } else {
-                _IsStopping = true;
+                //_IsStopping = true;
 
                 sdrPlayDeviceControlPanel.setPanelVisible(false);
                 sdrPlayStatusInfoPanel.setSDRDeviceStatusLabelText("...stopping...");
@@ -246,13 +246,13 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
         #endregion
 
         private unsafe void StreamCallback(object sender, ComplexSamplesEventArgs e) {
-            uint numSamples = e.Length;
+            uint elementCount = e.Length;
 
-            int j = ((int) (bufAccumCount * numSamples));
+            int j = ((int) (bufAccumCount * elementCount));
             int i;
 
             //Accumulate some number of samples
-            for (i = 0; i < numSamples; i++) {
+            for (i = 0; i < elementCount; i++) {
                 Ibuf[j] = (e.iBuffer[i]);
                 Qbuf[j] = (e.qBuffer[i]);
                 j++;
@@ -262,14 +262,14 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
 
             //once accumulated - write it to RingBuffer
             if (bufAccumCount == BUF_ACCUM_LIMIT) {
-                short[] receivedBytes = new short[numSamples * bufAccumCount * 2];
+                float[] receivedDataBuffer = new float[elementCount * bufAccumCount * 2];
                 j = 0;
-                for (i = 0; i < numSamples * bufAccumCount; i++) {
-                    receivedBytes[j++] = Ibuf[i];
-                    receivedBytes[j++] = Qbuf[i];
+                for (i = 0; i < elementCount * bufAccumCount; i++) {
+                    receivedDataBuffer[j++] = Ibuf[i];
+                    receivedDataBuffer[j++] = Qbuf[i];
                 }
 
-                buffer.WriteShort(receivedBytes, receivedBytes.Length);
+                buffer.Write(receivedDataBuffer, 0, receivedDataBuffer.Length);
                 bufAccumCount = 0;
             }
         }

@@ -1,10 +1,9 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
+
+using System.Windows.Forms;
+using CSIntel.Ipp;
 using static UN7ZO.HamCockpitPlugins.SDRPlaySource.NativeMethods;
 using static UN7ZO.HamCockpitPlugins.SDRPlaySource.SDRplayAPI_Callback;
 
@@ -17,8 +16,8 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
 
     public unsafe sealed class ComplexSamplesEventArgs : EventArgs {
         public uint Length { get; set; }
-        public short[] iBuffer { get; set; }
-        public short[] qBuffer { get; set; }
+        public float[] iBuffer { get; set; }
+        public float[] qBuffer { get; set; }
     }
 
     unsafe class SDRPlayDevice {
@@ -110,6 +109,7 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
 
             if ((err = sdrplay_api_Open()) != sdrplay_api_ErrT.sdrplay_api_Success) {
                 Debug.WriteLine("sdrplay_api_Open failed {0}", Marshal.PtrToStringAnsi(sdrplay_api_GetErrorString(err)));
+                MessageBox.Show(string.Format("SDRPlay API service open failed: {0}", Marshal.PtrToStringAnsi(sdrplay_api_GetErrorString(err))), "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             } else {
                 Debug.WriteLine("API opened successfully");
 
@@ -117,22 +117,24 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
                 if ((err = sdrplay_api_DebugEnable(IntPtr.Zero, 1)) != sdrplay_api_ErrT.sdrplay_api_Success) {
                     Debug.WriteLine("sdrplay_api_DebugEnable failed {0}", Marshal.PtrToStringAnsi(sdrplay_api_GetErrorString(err)));
                 }
-                Debug.WriteLine("debug messages enabled");
 
                 // Check API versions match
                 float ver;
                 if ((err = sdrplay_api_ApiVersion(out ver)) != sdrplay_api_ErrT.sdrplay_api_Success) {
                     Debug.WriteLine("sdrplay_api_ApiVersion failed {0}", Marshal.PtrToStringAnsi(sdrplay_api_GetErrorString(err)));
                 }
+
+                if (ver == 0) {
+                    MessageBox.Show("SDRPlay API service not installed or not accessible.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
                 if (ver != SDRPLAY_API_VERSION_307 && ver != SDRPLAY_API_VERSION_306) {
                     sdrplay_api_Close();
-                    throw new Exception(string.Format("API version don't match (expected={0:0.00} dll={0:0.00})", SDRPLAY_API_VERSION_307, ver));
+                    MessageBox.Show(string.Format("API version don't match (expected={0:0.00} dll={0:0.00})", SDRPLAY_API_VERSION_307, ver), "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
                 Debug.WriteLine("API version: {0:0.000}", ver);
 
                 // Fetch list of available devices
                 if ((err = sdrplay_api_GetDevices(devices, out uint ndev, 6)) != sdrplay_api_ErrT.sdrplay_api_Success) {
-                    sdrplay_api_UnlockDeviceApi();
                     sdrplay_api_Close();
                     //throw new Exception("sdrplay_api_GetDevices failed: " + Marshal.PtrToStringAnsi(sdrplay_api_GetErrorString(err)));
                 }
@@ -148,9 +150,8 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
             string serialNumber = CStrNullTermToString(_device.SerNo);
 
             if (_device.hwVer != SDRPLAY_RSP2_ID) {
-                sdrplay_api_UnlockDeviceApi();
                 sdrplay_api_Close();
-                throw new Exception(string.Format("Unsupported RSP device: %02X", _device.hwVer));
+                throw new ApplicationException(string.Format("Unsupported RSP device: %02X", _device.hwVer));
             }
 
             if (selectDevice) {
@@ -166,11 +167,11 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
                     Debug.WriteLine("Selected RSP device: " + hwVerStr(_device.hwVer) + ", S/N: " + serialNumber);
                     SelectedDeviceSN = serialNumber;
                     SelectedDeviceHwVerStr = hwVerStr(_device.hwVer);
-                    devices[devidx] = _device;
+                    devices[devidx] = _device; //store pointer for selected device back to array
                     _isSelected = true;
+                    // Unlock API now that device is selected
+                    sdrplay_api_UnlockDeviceApi();
                 }
-                // Unlock API now that device is selected
-                sdrplay_api_UnlockDeviceApi();
             } else {
                 //Debug.WriteLine("Picked up previously selected device. Use this with danger :)");
                 SelectedDeviceSN = serialNumber;
@@ -182,12 +183,12 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
             IntPtr deviceParamsPtr = IntPtr.Zero;
             if ((err = sdrplay_api_GetDeviceParams(_device.dev, out deviceParamsPtr)) != sdrplay_api_ErrT.sdrplay_api_Success) {
                 sdrplay_api_Close();
-                throw new Exception("sdrplay_api_GetDeviceParams failed: " + Marshal.PtrToStringAnsi(sdrplay_api_GetErrorString(err)));
+                throw new ApplicationException("sdrplay_api_GetDeviceParams failed: " + Marshal.PtrToStringAnsi(sdrplay_api_GetErrorString(err)));
             }
             // Check for NULL pointers before changing settings
             if (deviceParamsPtr == IntPtr.Zero) {
                 sdrplay_api_Close();
-                throw new Exception("sdrplay_api_GetDeviceParams returned NULL deviceParams pointer");
+                throw new ApplicationException("sdrplay_api_GetDeviceParams returned NULL deviceParams pointer");
             }
             deviceParams = Marshal.PtrToStructure<sdrplay_api_DeviceParamsT>(deviceParamsPtr);
 
@@ -210,7 +211,6 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
             }
 
             if (deviceParams.rxChannelA != IntPtr.Zero) {
-                //this makes a copy of the unmanaged structure allocated in the API
                 sdrplay_api_RxChannelParamsT rxParamsA = Marshal.PtrToStructure<sdrplay_api_RxChannelParamsT>(deviceParams.rxChannelA);
 
                 rxParamsA.tunerParams.rfFreq.rfHz = (float)dialFreq;
@@ -228,7 +228,6 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
                 rxParamsA.tunerParams.gain.LNAstate = (byte)lnaLevel;
                 rxParamsA.ctrlParams.agc.enable = sdrplay_api_AgcControlT.sdrplay_api_AGC_CTRL_EN;
 
-                //to apply these changes, overwrite the unmanaged structure memory with the updated managed structure
                 Marshal.StructureToPtr<sdrplay_api_RxChannelParamsT>(rxParamsA, deviceParams.rxChannelA, false);
             } else {
                 sdrplay_api_Close();
@@ -241,11 +240,8 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
             sdrplay_api_DeviceParamsT deviceParams = selectDevice(0, false);
 
             if (deviceParams.rxChannelA != IntPtr.Zero) {
-                //get from memory pointer to editable structure
                 sdrplay_api_RxChannelParamsT rxParamsA = Marshal.PtrToStructure<sdrplay_api_RxChannelParamsT>(deviceParams.rxChannelA);
-                //edit it! :)
                 rxParamsA.tunerParams.rfFreq.rfHz = (double)frequency;
-                //to apply these changes, overwrite the unmanaged structure memory with the updated managed structure
                 Marshal.StructureToPtr<sdrplay_api_RxChannelParamsT>(rxParamsA, deviceParams.rxChannelA, false);
             }
 
@@ -254,29 +250,24 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
                     Debug.WriteLine("sdrplay_api_Update sdrplay_api_Update_Tuner_Gr failed: " + sdrplay_api_GetErrorString(err));
                 } else {
                     Debug.WriteLine("LO changed to: " + frequency);
-                    //freq changed
                 }
         }
 
-        internal void selectAntenna(int antNum) {
+        internal void SelectAntenna(int antNum) {
             sdrplay_api_ErrT err;
             sdrplay_api_DeviceParamsT deviceParams = selectDevice(0, false);
 
             if (deviceParams.rxChannelA != IntPtr.Zero) {
-                //get from memory pointer to editable structure
                 sdrplay_api_RxChannelParamsT rxParamsA = Marshal.PtrToStructure<sdrplay_api_RxChannelParamsT>(deviceParams.rxChannelA);
-                //edit it! :)
                 rxParamsA.rsp2TunerParams.antennaSel = (SDRplayAPI_RSP2.sdrplay_api_Rsp2_AntennaSelectT)antNum;
-                //to apply these changes, overwrite the unmanaged structure memory with the updated managed structure
                 Marshal.StructureToPtr<sdrplay_api_RxChannelParamsT>(rxParamsA, deviceParams.rxChannelA, false);
             }
 
             if (_isStreaming)
                 if ((err = sdrplay_api_Update(_device.dev, _device.tuner, sdrplay_api_ReasonForUpdateT.sdrplay_api_Update_Rsp2_AntennaControl, sdrplay_api_ReasonForUpdateExtension1T.sdrplay_api_Update_Ext1_None)) != sdrplay_api_ErrT.sdrplay_api_Success) {
-                    Debug.WriteLine("sdrplay_api_Update sdrplay_api_Update_Rsp2_AntennaControl failed: " + sdrplay_api_GetErrorString(err));
+                    Debug.WriteLine("sdrplay_api_Update AntennaControl failed: " + sdrplay_api_GetErrorString(err));
                 } else {
                     Debug.WriteLine("Antenna selected: " + antNum);
-                    //freq changed
                 }
         }
 
@@ -285,11 +276,8 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
             sdrplay_api_DeviceParamsT deviceParams = selectDevice(0, false);
 
             if (deviceParams.rxChannelA != IntPtr.Zero) {
-                //get from memory pointer to editable structure
                 sdrplay_api_RxChannelParamsT rxParamsA = Marshal.PtrToStructure<sdrplay_api_RxChannelParamsT>(deviceParams.rxChannelA);
-                //edit it! :)
                 rxParamsA.tunerParams.gain.LNAstate = (byte)value;
-                //to apply these changes, overwrite the unmanaged structure memory with the updated managed structure
                 Marshal.StructureToPtr<sdrplay_api_RxChannelParamsT>(rxParamsA, deviceParams.rxChannelA, false);
             }
 
@@ -299,7 +287,6 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
                 } else {
                     Debug.WriteLine("LNAState (gain reduce) changed to: " + value);
                 }
-
         }
 
         internal void setNotchEnabled(bool value) {
@@ -325,14 +312,11 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
         public void StartSampling() {
             sdrplay_api_ErrT err;
 
-            if (_isStreaming) {
+            if (_isStreaming) 
                 return;
-            }
 
-            // Now we're ready to start by calling the initialisation function
-            // This will configure the device and start streaming
-            if ((err = sdrplay_api_Init(_device.dev, ref cbFns, IntPtr.Zero)) != sdrplay_api_ErrT.sdrplay_api_Success) {
-                Console.WriteLine("sdrplay_api_Init failed {0}", Marshal.PtrToStringAnsi(sdrplay_api_GetErrorString(err)));
+                if ((err = sdrplay_api_Init(_device.dev, ref cbFns, IntPtr.Zero)) != sdrplay_api_ErrT.sdrplay_api_Success) {
+                    Debug.WriteLine("sdrplay_api_Init failed {0}", Marshal.PtrToStringAnsi(sdrplay_api_GetErrorString(err)));
 
                 IntPtr lastErrorPtr = sdrplay_api_GetLastError(IntPtr.Zero);
                 if (lastErrorPtr != IntPtr.Zero) {
@@ -377,16 +361,30 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
             var handler = SamplesAvailableEvent;
             if (handler != null) {
                 var e = new ComplexSamplesEventArgs();
-                e.iBuffer = new short[numSamples];
-                e.qBuffer = new short[numSamples];
+                var iPrepareBuffer = new short[numSamples];
+                var qPrepareBuffer = new short[numSamples];
+
+                e.iBuffer = new float[numSamples];
+                e.qBuffer = new float[numSamples];
 
                 bufferLock = new object();
                 lock (bufferLock) {
-                    Marshal.Copy(xi, e.iBuffer, 0, (int)numSamples);
-                    Marshal.Copy(xq, e.qBuffer, 0, (int)numSamples);
+                    //read buffer from memory pointer to short[] structure
+                    Marshal.Copy(xi, iPrepareBuffer, 0, (int)numSamples);
+                    Marshal.Copy(xq, qPrepareBuffer, 0, (int)numSamples);
+
+                    //convert it
+                    fixed (short* pInBuffer = iPrepareBuffer)
+                    fixed (float* pOutBuffer = e.iBuffer)
+                        sp.ippsConvert_16s32f_Sfs(pInBuffer, pOutBuffer, (int) numSamples, 15);
+
+                    fixed (short* pInBuffer = qPrepareBuffer)
+                    fixed (float* pOutBuffer = e.qBuffer)
+                        sp.ippsConvert_16s32f_Sfs(pInBuffer, pOutBuffer, (int)numSamples, 15);
                 }
 
                 e.Length = numSamples;
+                //send event to main class
                 handler(this, e);
             }
         }

@@ -27,7 +27,12 @@ namespace UN7ZO.HamCockpitPlugins.SDRPlaySource {
         }
 
         internal void setInitialAntenna(int antindex) {
-            cbAntennaSelect.SelectedIndex = antindex-5;
+            int ant = 5;
+
+            if (ant > 0) 
+                ant = antindex - 5;
+
+            cbAntennaSelect.SelectedIndex = ant;
         }
 
         internal void setInitialNotchStatus(bool value) {
