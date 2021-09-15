@@ -16,3 +16,10 @@ Tuner AGC is hardcoded and set to "always on".
 
 
 ![image](https://user-images.githubusercontent.com/13137490/132552550-23b1aab7-681a-4773-8e92-f89b78decf1e.png)
+
+# Installation
+
+- Download last available release. 
+- Right-click on the downloaded zip file, click on Properties in the popup menu, tick the Unblock checkbox, and click on OK.
+- Extract all files from the zip to the folder where Ham Cockpit is installed
+- Start Ham Cockpit, click on View / Plugin Settings in the menu and configure the installed plugins.
